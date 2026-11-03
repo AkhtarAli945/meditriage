@@ -1,5 +1,4 @@
 import express from 'express';
-app.set('trust proxy', 1);
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
@@ -16,6 +15,7 @@ import { seedAll } from './seed.js';
 import { llmAvailable } from './agent/llm.js';
 
 const app = express();
+app.set('trust proxy', 1);
 app.use(helmet());
 app.use(cors({ origin: config.clientUrl.split(','), credentials: true }));
 app.use(express.json({ limit: '100kb' }));

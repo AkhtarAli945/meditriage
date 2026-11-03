@@ -9,7 +9,7 @@ export async function seedRules() {
 }
 async function upsertUser(email, name, role, password) {
   let u = await User.findOne({ email });
-  if (!u) u = await User.create({ email, name, role, phone: '03000000000', passwordHash: await bcrypt.hash(process.env.DEMO_PASSWORD || password, 12),, consent: { aiProcessing: true, shareWithDoctor: true, at: new Date() } });
+  if (!u) u = await User.create({ email, name, role, phone: '03000000000', passwordHash: await bcrypt.hash(process.env.DEMO_PASSWORD || password, 12), consent: { aiProcessing: true, shareWithDoctor: true, at: new Date() } });
   return u;
 }
 export async function seedAll() {

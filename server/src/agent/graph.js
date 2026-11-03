@@ -29,19 +29,44 @@ export const quickFor = (step, lang) => QUICK[STEPS[step]]?.[lang] || [];
 
 const MSG = {
   en: {
+    retry: "Sorry, I didn't understand that.",
     emergency: 'This may be an emergency. Please call your local emergency number or go to the nearest emergency room now. Do not wait for this chat.',
     done: (u, d) => `Thanks. Your result: ${u.toUpperCase()}. Recommended: ${d}. Please review the details and book a doctor.`,
   },
   ur: {
+    retry: 'معذرت، میں سمجھ نہیں سکا۔',
     emergency: 'یہ ایمرجنسی ہو سکتی ہے۔ براہ کرم فوراً ایمرجنسی نمبر پر کال کریں یا قریبی ہسپتال جائیں۔ اس چیٹ کا انتظار نہ کریں۔',
     done: (u, d) => `شکریہ۔ آپ کا نتیجہ: ${{ emergency: 'ایمرجنسی', urgent: 'فوری', routine: 'معمول کے مطابق' }[u] || u}۔ تجویز: ${d}۔ تفصیل دیکھ کر ڈاکٹر بُک کریں۔`,
   },
 };
 
+const EX = {
+  en: { concern: 'For example: "fever and sore throat".', duration: 'For example: "2 days" or "since morning".', severity: 'Please give a number from 1 to 10.', age: 'Please give a number, for example 30.' },
+  ur: { concern: 'مثال: "بخار اور گلے میں درد"۔', duration: 'مثال: "دو دن سے" یا "صبح سے"۔', severity: 'براہ کرم 1 سے 10 کے درمیان نمبر بتائیں۔', age: 'براہ کرم نمبر بتائیں، جیسے 30۔' },
+};
+const SYMPTOMS = /pain|ache|fever|cough|cold|flu|throat|rash|itch|vomit|nausea|dizz|breath|chest|stomach|bleed|swell|burn|weak|sick|injur|sugar|diarrh|sneez|infect|درد|بخار|کھانسی|گلا|خارش|الٹی|چکر|سانس|سینے|پیٹ|خون|dard|bukhar|khansi|ulti|seene/i;
+const TIME = /\d|today|yesterday|tonight|morning|night|day|week|month|year|hour|since|ago|aaj|kal|din|hafta|mahin|saal|گھنٹ|آج|کل|دن|ہفتہ|ماہ|مہینہ|سال|صبح|رات/i;
+const SEV_WORDS = /mild|moderate|severe|unbearable|little|slight|very|bohat|bahut|thora|shadeed|شدید|ہلکا|تھوڑا|بہت|درمیانہ/i;
+const letters = (s) => (s.match(/[A-Za-z\u0600-\u06FF]/g) || []).length;
+const looksLikeText = (s) => {
+  if (letters(s) < 5) return false;
+  if (/[\u0600-\u06FF]/.test(s)) return true;
+  return /[aeiouy]/i.test(s) && !/[^aeiouy\s\d]{5,}/i.test(s) && !/(.)\1{3,}/i.test(s);
+};
+// Rejects answers like "n" or "asdfgh" so the agent asks again instead of moving on.
+function validate(key, v) {
+  const num = v.match(/\d+/);
+  if (key === 'concern') return SYMPTOMS.test(v) || looksLikeText(v);
+  if (key === 'duration') return TIME.test(v);
+  if (key === 'severity') return num ? +num[0] <= 10 : SEV_WORDS.test(v);
+  if (key === 'age') return num ? +num[0] <= 120 : /newborn|infant|baby|toddler|بچہ/i.test(v);
+  return true;
+}
+
 const State = Annotation.Root({
   language: Annotation(), userText: Annotation(), allText: Annotation(), rules: Annotation(),
   slots: Annotation(), step: Annotation(), flags: Annotation(), sources: Annotation(),
-  result: Annotation(), reply: Annotation(), done: Annotation(),
+  result: Annotation(), reply: Annotation(), done: Annotation(), invalid: Annotation(),
   trace: Annotation({ reducer: (a, b) => a.concat(b), default: () => [] }),
 });
 
@@ -52,14 +77,15 @@ const timed = (node, fn) => async (s) => {
 };
 
 const intake = timed('intake', (s) => {
-  const slots = { ...(s.slots || {}) };
   const key = STEPS[s.step];
   const v = s.userText.trim();
-  if (key === 'severity') { const n = v.match(/\d+/); slots.severityNum = n ? Math.min(10, +n[0]) : /severe|شدید|unbearable/i.test(v) ? 9 : 5; }
-  if (key === 'age') { const n = v.match(/\d+/); slots.ageNum = n ? +n[0] : null; }
-  slots[key] = v;
   const language = detectLang(v, s.language);
-  return { slots, language, step: s.step + 1, note: `captured ${key} (${language})` };
+  if (!validate(key, v)) return { language, invalid: true, note: `unclear answer for ${key}, asking again` };
+  const slots = { ...(s.slots || {}) };
+  if (key === 'severity') { const n = v.match(/\d+/); slots.severityNum = n ? Math.min(10, +n[0]) : /mild|little|slight|ہلکا|تھوڑا/i.test(v) ? 2 : /severe|unbearable|شدید/i.test(v) ? 9 : 5; }
+  if (key === 'age') { const n = v.match(/\d+/); slots.ageNum = n ? +n[0] : 1; }
+  slots[key] = v;
+  return { slots, language, invalid: false, step: s.step + 1, note: `captured ${key} (${language})` };
 });
 
 const redflag = timed('red-flag rules', (s) => {
@@ -108,16 +134,17 @@ const score = timed('urgency scoring', async (s) => {
 });
 
 const finalize = timed('compose reply', (s) => ({ reply: MSG[s.language].done(s.result.urgency, s.result.department), note: 'done' }));
+const reask = timed('re-ask', (s) => ({ reply: `${MSG[s.language].retry} ${EX[s.language][STEPS[s.step]]} ${Q[s.language][STEPS[s.step]]}`, done: false, note: `unclear ${STEPS[s.step]}` }));
 const ask = timed('ask next', (s) => ({ reply: Q[s.language][STEPS[s.step]], done: false, note: STEPS[s.step] }));
 
 const graph = new StateGraph(State)
   .addNode('intake', intake).addNode('redflag', redflag).addNode('emergency', emergency)
-  .addNode('retrieve', retrieveNode).addNode('score', score).addNode('finalize', finalize).addNode('ask', ask)
+  .addNode('retrieve', retrieveNode).addNode('score', score).addNode('finalize', finalize).addNode('ask', ask).addNode('reask', reask)
   .addEdge(START, 'intake').addEdge('intake', 'redflag')
-  .addConditionalEdges('redflag', (s) => (s.flags.length ? 'emergency' : s.step >= STEPS.length ? 'retrieve' : 'ask'),
-    { emergency: 'emergency', retrieve: 'retrieve', ask: 'ask' })
+  .addConditionalEdges('redflag', (s) => (s.flags.length ? 'emergency' : s.invalid ? 'reask' : s.step >= STEPS.length ? 'retrieve' : 'ask'),
+    { emergency: 'emergency', reask: 'reask', retrieve: 'retrieve', ask: 'ask' })
   .addEdge('retrieve', 'score').addEdge('score', 'finalize')
-  .addEdge('emergency', END).addEdge('finalize', END).addEdge('ask', END)
+  .addEdge('emergency', END).addEdge('finalize', END).addEdge('ask', END).addEdge('reask', END)
   .compile();
 
 export async function runTurn({ session, text, rules }) {
