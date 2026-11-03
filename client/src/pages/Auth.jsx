@@ -46,8 +46,10 @@ export function SignIn() {
         <button className="btn" disabled={busy}>{busy ? 'Signing in…' : t('Sign in')}</button>
       </form>
       <p className="mut text-center">New here? <Link to="/signup" className="font-bold text-teal">{t('Sign up')}</Link></p>
-      <details className="mut rounded-2xl bg-page p-3"><summary className="cursor-pointer font-bold">Demo accounts</summary>
-        <p className="mt-2">patient@meditriage.test / Patient@12345<br />dr.khan@meditriage.test / Doctor@12345<br />admin@meditriage.test / Admin@12345</p></details>
+      {import.meta.env.DEV && (
+        <details className="mut rounded-2xl bg-page p-3"><summary className="cursor-pointer font-bold">Demo accounts</summary>
+          <p className="mt-2">patient@meditriage.test / Patient@12345<br />dr.khan@meditriage.test / Doctor@12345<br />admin@meditriage.test / Admin@12345</p></details>
+      )}
     </Frame>
   );
 }

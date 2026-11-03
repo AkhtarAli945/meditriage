@@ -1,4 +1,5 @@
 import express from 'express';
+app.set('trust proxy', 1);
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
